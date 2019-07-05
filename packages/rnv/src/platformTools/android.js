@@ -43,7 +43,7 @@ import { getMergedPlugin, parsePlugins } from '../pluginTools';
 
 const readline = require('readline');
 
-let currentDeviceProps = null;
+const currentDeviceProps = {};
 
 const composeDevicesString = (devices, returnArray) => {
     logTask(`composeDevicesString:${devices ? devices.length : null}`);
@@ -151,19 +151,24 @@ const isSquareishDevice = (width, height) => {
 
 const getRunningDeviceProp = (c, udid, prop) => {
     // avoid multiple calls to the same device
-    if (currentDeviceProps) {
-        if (!prop) return currentDeviceProps;
-        return currentDeviceProps[prop];
+    if (currentDeviceProps[udid]) {
+        if (!prop) return currentDeviceProps[udid];
+        if (currentDeviceProps[udid][prop]) return currentDeviceProps[udid][prop];
+        return '';
     }
     const rawProps = child_process.execSync(`${c.cli[CLI_ANDROID_ADB]} -s ${udid} shell getprop`).toString().trim();
     const lines = rawProps.trim().split(/\r?\n/);
     lines.forEach((line) => {
-        const words = line.split(']: [');
-        const key = words[0].slice(1);
-        const value = words[1].slice(0, words[1].length - 1);
+        let key;
+        let value;
+        if (line && line.includes(']: [')) {
+            const words = line.split(']: [');
+            key = words[0].slice(1);
+            value = words[1].slice(0, words[1].length - 1);
+        }
 
-        if (!currentDeviceProps) currentDeviceProps = {};
-        currentDeviceProps[key] = value;
+        if (!currentDeviceProps[udid]) currentDeviceProps[udid] = {};
+        if (key) currentDeviceProps[udid][key] = value;
     });
 
     return getRunningDeviceProp(c, udid, prop);
@@ -287,17 +292,20 @@ const getAvdDetails = (deviceName) => {
 
 const getEmulatorName = async (words) => {
     const emulator = words[0];
-    const port = emulator.split('-')[1];
-    // Use telnet or nc, whichever is available
-    let command = commandExistsSync('nc') ? 'nc' : null;
-    if (commandExistsSync('telnet')) command = 'telnet';
+    if (emulator && emulator.split) {
+        const port = emulator.split('-')[1];
+        // Use telnet or nc, whichever is available
+        let command = commandExistsSync('nc') ? 'nc' : null;
+        if (commandExistsSync('telnet')) command = 'telnet';
 
-    if (!command) throw new Error('You must have nc or telnet installed');
+        if (!command) throw new Error('You must have nc or telnet installed');
 
-    const emulatorReply = await execCLI(null, null, `echo "avd name" | ${command} localhost ${port}`);
-    const emulatorReplyArray = emulatorReply.split('OK');
-    const emulatorName = emulatorReplyArray[emulatorReplyArray.length - 2].trim();
-    return emulatorName;
+        const emulatorReply = await execCLI(null, null, `echo "avd name" | ${command} localhost ${port}`);
+        const emulatorReplyArray = emulatorReply.split('OK');
+        const emulatorName = emulatorReplyArray[emulatorReplyArray.length - 2].trim();
+        return emulatorName;
+    }
+    return '(Could not determine name)';
 };
 
 const connectToWifiDevice = async (c, ip) => {
